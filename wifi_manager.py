@@ -218,6 +218,7 @@ class WifiManagerApp(QtWidgets.QMainWindow):
             "User",
         ])
         self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setSortingEnabled(True)
         layout.addWidget(self.table)
 
         btn_layout = QtWidgets.QHBoxLayout()
@@ -250,26 +251,57 @@ class WifiManagerApp(QtWidgets.QMainWindow):
             display = alias or (net.ssid if net.ssid else "Hidden")
             self.table.setItem(row, 0, QtWidgets.QTableWidgetItem(display))
             self.table.setItem(row, 1, QtWidgets.QTableWidgetItem(net.bssid or ""))
-            self.table.setItem(row, 2, QtWidgets.QTableWidgetItem(net.signal or ""))
-            self.table.setItem(row, 3, QtWidgets.QTableWidgetItem(net.rssi or ""))
-            self.table.setItem(row, 4, QtWidgets.QTableWidgetItem(net.channel or ""))
+
+            item = QtWidgets.QTableWidgetItem(net.signal or "")
+            if net.signal:
+                try:
+                    item.setData(QtCore.Qt.UserRole, int(net.signal.strip().strip("%")))
+                except ValueError:
+                    pass
+            self.table.setItem(row, 2, item)
+
+            item = QtWidgets.QTableWidgetItem(net.rssi or "")
+            if net.rssi:
+                try:
+                    item.setData(QtCore.Qt.UserRole, float(net.rssi.split()[0]))
+                except ValueError:
+                    pass
+            self.table.setItem(row, 3, item)
+
+            item = QtWidgets.QTableWidgetItem(net.channel or "")
+            if net.channel:
+                try:
+                    item.setData(QtCore.Qt.UserRole, int(net.channel))
+                except ValueError:
+                    pass
+            self.table.setItem(row, 4, item)
+
             self.table.setItem(row, 5, QtWidgets.QTableWidgetItem(net.vendor or ""))
             self.table.setItem(row, 6, QtWidgets.QTableWidgetItem(net.auth or ""))
             self.table.setItem(row, 7, QtWidgets.QTableWidgetItem(net.encryption or ""))
+
             saved = (net.ssid and net.ssid in profiles) or (
                 alias and alias in profiles
             )
-            user_flag = "Yes" if (
+            user = (
                 (net.bssid and net.bssid in self.aliases)
                 or (not net.bssid and net.ssid in self.aliases.values())
-            ) else ""
+            )
+            user_flag = "Yes" if user else ""
             self.table.setItem(row, 8, QtWidgets.QTableWidgetItem("Yes" if saved else ""))
             self.table.setItem(row, 9, QtWidgets.QTableWidgetItem(user_flag))
+
             if saved:
                 for col in range(self.table.columnCount()):
                     item = self.table.item(row, col)
                     if item is not None:
                         item.setBackground(QtGui.QColor(200, 255, 200))
+            if user:
+                for col in range(self.table.columnCount()):
+                    item = self.table.item(row, col)
+                    if item is not None:
+                        item.setBackground(QtGui.QColor(200, 220, 255))
+
             if net.bssid and connected and net.bssid.lower() == connected.lower():
                 for col in range(self.table.columnCount()):
                     item = self.table.item(row, col)
