@@ -47,11 +47,11 @@ class WiFiNetwork:
     encryption: Optional[str]
 
 
-def scan_networks() -> List[WiFiNetwork]:
-    """Use netsh to scan Wi-Fi networks on Windows."""
+def list_interfaces() -> List[str]:
+    """Return Wi-Fi interface names discovered by netsh."""
     try:
         result = subprocess.run(
-            ["netsh", "wlan", "show", "networks", "mode=bssid"],
+            ["netsh", "wlan", "show", "interfaces"],
             capture_output=True,
             text=True,
             check=True,
@@ -59,45 +59,76 @@ def scan_networks() -> List[WiFiNetwork]:
     except Exception:
         return []
 
-    networks: List[WiFiNetwork] = []
-    ssid: Optional[str] = None
-    auth: Optional[str] = None
-    encryption: Optional[str] = None
-    current: Optional[WiFiNetwork] = None
+    names: List[str] = []
     for raw_line in result.stdout.splitlines():
         line = raw_line.strip()
-        if line.startswith("SSID "):
-            value = line.partition(":")[2].strip()
-            ssid = value if value else None
-            auth = None
-            encryption = None
-        elif line.startswith("Authentication"):
-            auth = line.partition(":")[2].strip()
-        elif line.startswith("Encryption"):
-            encryption = line.partition(":")[2].strip()
-        elif line.startswith("BSSID"):
-            bssid = line.partition(":")[2].strip()
-            current = WiFiNetwork(
-                ssid=ssid,
-                bssid=bssid,
-                signal=None,
-                rssi=None,
-                channel=None,
-                vendor=None,
-                auth=auth,
-                encryption=encryption,
+        if line.lower().startswith("name"):
+            name = line.partition(":")[2].strip()
+            if name:
+                names.append(name)
+    return names
+
+
+def scan_networks() -> List[WiFiNetwork]:
+    """Use netsh to scan Wi-Fi networks on all interfaces."""
+    networks: List[WiFiNetwork] = []
+    seen: set[str] = set()
+
+    interfaces = list_interfaces() or [None]
+    for iface in interfaces:
+        cmd = ["netsh", "wlan", "show", "networks"]
+        if iface:
+            cmd.append(f"interface={iface}")
+        cmd.append("mode=bssid")
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, check=True
             )
-            networks.append(current)
-        elif current is not None and line.startswith("Signal"):
-            signal = line.partition(":")[2].strip()
-            current.signal = signal
-            try:
-                pct = int(signal.strip().strip("%"))
-                current.rssi = f"{pct / 2 - 100:.0f} dBm"
-            except ValueError:
-                current.rssi = None
-        elif current is not None and line.startswith("Channel"):
-            current.channel = line.partition(":")[2].strip()
+        except Exception:
+            continue
+
+        ssid: Optional[str] = None
+        auth: Optional[str] = None
+        encryption: Optional[str] = None
+        current: Optional[WiFiNetwork] = None
+        for raw_line in result.stdout.splitlines():
+            line = raw_line.strip()
+            if line.startswith("SSID "):
+                value = line.partition(":")[2].strip()
+                ssid = value if value else None
+                auth = None
+                encryption = None
+            elif line.startswith("Authentication"):
+                auth = line.partition(":")[2].strip()
+            elif line.startswith("Encryption"):
+                encryption = line.partition(":")[2].strip()
+            elif line.startswith("BSSID"):
+                bssid = line.partition(":")[2].strip()
+                if bssid.lower() in seen:
+                    current = None
+                    continue
+                current = WiFiNetwork(
+                    ssid=ssid,
+                    bssid=bssid,
+                    signal=None,
+                    rssi=None,
+                    channel=None,
+                    vendor=None,
+                    auth=auth,
+                    encryption=encryption,
+                )
+                networks.append(current)
+                seen.add(bssid.lower())
+            elif current is not None and line.startswith("Signal"):
+                signal = line.partition(":")[2].strip()
+                current.signal = signal
+                try:
+                    pct = int(signal.strip().strip("%"))
+                    current.rssi = f"{pct / 2 - 100:.0f} dBm"
+                except ValueError:
+                    current.rssi = None
+            elif current is not None and line.startswith("Channel"):
+                current.channel = line.partition(":")[2].strip()
 
     vendors = load_vendors()
     for net in networks:
@@ -118,6 +149,28 @@ def scan_networks() -> List[WiFiNetwork]:
             net.vendor = vendor
 
     return networks
+
+
+def saved_profiles() -> set[str]:
+    """Return the set of profile names saved on the system."""
+    try:
+        result = subprocess.run(
+            ["netsh", "wlan", "show", "profiles"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except Exception:
+        return set()
+
+    profiles: set[str] = set()
+    for raw_line in result.stdout.splitlines():
+        line = raw_line.strip()
+        if line.startswith("All User Profile") or line.startswith("User Profile"):
+            name = line.partition(":")[2].strip()
+            if name:
+                profiles.add(name)
+    return profiles
 
 
 def current_connection() -> Optional[str]:
@@ -151,7 +204,7 @@ class WifiManagerApp(QtWidgets.QMainWindow):
         self.setCentralWidget(central)
         layout = QtWidgets.QVBoxLayout(central)
 
-        self.table = QtWidgets.QTableWidget(0, 8)
+        self.table = QtWidgets.QTableWidget(0, 10)
         self.table.setHorizontalHeaderLabels([
             "Name/SSID",
             "BSSID",
@@ -161,6 +214,8 @@ class WifiManagerApp(QtWidgets.QMainWindow):
             "Vendor",
             "Auth",
             "Encryption",
+            "Saved",
+            "User",
         ])
         self.table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.table)
@@ -186,7 +241,9 @@ class WifiManagerApp(QtWidgets.QMainWindow):
     # ------------------------------------------------------------------
     def refresh_networks(self) -> None:
         self.networks = scan_networks()
+        profiles = saved_profiles()
         connected = current_connection()
+
         self.table.setRowCount(len(self.networks))
         for row, net in enumerate(self.networks):
             alias = self.aliases.get(net.bssid or "", None)
@@ -199,6 +256,20 @@ class WifiManagerApp(QtWidgets.QMainWindow):
             self.table.setItem(row, 5, QtWidgets.QTableWidgetItem(net.vendor or ""))
             self.table.setItem(row, 6, QtWidgets.QTableWidgetItem(net.auth or ""))
             self.table.setItem(row, 7, QtWidgets.QTableWidgetItem(net.encryption or ""))
+            saved = (net.ssid and net.ssid in profiles) or (
+                alias and alias in profiles
+            )
+            user_flag = "Yes" if (
+                (net.bssid and net.bssid in self.aliases)
+                or (not net.bssid and net.ssid in self.aliases.values())
+            ) else ""
+            self.table.setItem(row, 8, QtWidgets.QTableWidgetItem("Yes" if saved else ""))
+            self.table.setItem(row, 9, QtWidgets.QTableWidgetItem(user_flag))
+            if saved:
+                for col in range(self.table.columnCount()):
+                    item = self.table.item(row, col)
+                    if item is not None:
+                        item.setBackground(QtGui.QColor(200, 255, 200))
             if net.bssid and connected and net.bssid.lower() == connected.lower():
                 for col in range(self.table.columnCount()):
                     item = self.table.item(row, col)
@@ -206,6 +277,7 @@ class WifiManagerApp(QtWidgets.QMainWindow):
                         font = item.font()
                         font.setBold(True)
                         item.setFont(font)
+
         self.table.resizeColumnsToContents()
 
     def current_network(self) -> Optional[WiFiNetwork]:
