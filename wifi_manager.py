@@ -14,7 +14,8 @@ VENDORS_FILE = "vendors.json"
 def load_aliases() -> dict:
     if os.path.exists(ALIASES_FILE):
         with open(ALIASES_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        return {normalize_bssid(k): v for k, v in data.items()}
     return {}
 
 
@@ -33,6 +34,11 @@ def load_vendors() -> dict:
 def save_vendors(vendors: dict) -> None:
     with open(VENDORS_FILE, "w", encoding="utf-8") as f:
         json.dump(vendors, f, indent=2)
+
+
+def normalize_bssid(bssid: str) -> str:
+    """Return a canonical lower-case BSSID string using colons."""
+    return bssid.strip().replace("-", ":").lower()
 
 
 @dataclass
@@ -103,8 +109,9 @@ def scan_networks() -> List[WiFiNetwork]:
             elif line.startswith("Encryption"):
                 encryption = line.partition(":")[2].strip()
             elif line.startswith("BSSID"):
-                bssid = line.partition(":")[2].strip()
-                if bssid.lower() in seen:
+                bssid_raw = line.partition(":")[2].strip()
+                bssid = normalize_bssid(bssid_raw)
+                if bssid in seen:
                     current = None
                     continue
                 current = WiFiNetwork(
@@ -118,7 +125,7 @@ def scan_networks() -> List[WiFiNetwork]:
                     encryption=encryption,
                 )
                 networks.append(current)
-                seen.add(bssid.lower())
+                seen.add(bssid)
             elif current is not None and line.startswith("Signal"):
                 signal = line.partition(":")[2].strip()
                 current.signal = signal
@@ -128,7 +135,8 @@ def scan_networks() -> List[WiFiNetwork]:
                 except ValueError:
                     current.rssi = None
             elif current is not None and line.startswith("Channel"):
-                current.channel = line.partition(":")[2].strip()
+                chan = line.partition(":")[2].strip()
+                current.channel = chan.split()[0] if chan else None
 
     vendors = load_vendors()
     for net in networks:
@@ -187,7 +195,7 @@ def current_connection() -> Optional[str]:
     for raw_line in result.stdout.splitlines():
         line = raw_line.strip()
         if line.startswith("BSSID"):
-            return line.partition(":")[2].strip()
+            return normalize_bssid(line.partition(":")[2])
     return None
 
 
@@ -292,17 +300,18 @@ class WifiManagerApp(QtWidgets.QMainWindow):
             self.table.setItem(row, 9, QtWidgets.QTableWidgetItem(user_flag))
 
             if saved:
+                color = QtGui.QColor(200, 255, 200)
+            elif user:
+                color = QtGui.QColor(200, 220, 255)
+            else:
+                color = None
+            if color is not None:
                 for col in range(self.table.columnCount()):
                     item = self.table.item(row, col)
                     if item is not None:
-                        item.setBackground(QtGui.QColor(200, 255, 200))
-            if user:
-                for col in range(self.table.columnCount()):
-                    item = self.table.item(row, col)
-                    if item is not None:
-                        item.setBackground(QtGui.QColor(200, 220, 255))
+                        item.setBackground(color)
 
-            if net.bssid and connected and net.bssid.lower() == connected.lower():
+            if net.bssid and connected and net.bssid == connected:
                 for col in range(self.table.columnCount()):
                     item = self.table.item(row, col)
                     if item is not None:
