@@ -1,6 +1,7 @@
 # WifiManager
 
 A minimal Python application for Windows 11 that enumerates nearby Wi‑Fi networks (including hidden ones) using the built‑in `netsh` command. The GUI allows you to refresh the list, connect or disconnect, assign friendly names to hidden networks, and view extra details about each access point.
+<img width="1226" height="597" alt="image" src="https://github.com/user-attachments/assets/bc9070ba-116c-442d-8475-3a4c21f0307a" />
 
 ## Features
 * Scans each interface using `netsh wlan show networks mode=bssid` so all nearby networks are listed, not just the one currently connected.
