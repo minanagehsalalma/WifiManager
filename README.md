@@ -8,8 +8,9 @@ A minimal Python application for Windows 11 that enumerates nearby Wi‑Fi netwo
 * Displays hidden networks and lets you associate a friendly name with them (stored in `aliases.json`).
 * Shows signal percentage, estimated RSSI, channel, authentication, encryption, and MAC vendor for each BSSID (cached in `vendors.json`).
 * Highlights the currently connected network.
-* Networks with saved Windows profiles are highlighted in light green, and entries with your custom names are tagged.
+* Networks with saved Windows profiles are highlighted in light green, and entries with your custom names are highlighted in light blue.
 * Connects or disconnects via `netsh wlan connect` / `netsh wlan disconnect`.
+* Columns are sortable; click a header to order by that field.
 * Simple PyQt5 interface styled with the Fusion theme for a modern look.
 
 ## Requirements
